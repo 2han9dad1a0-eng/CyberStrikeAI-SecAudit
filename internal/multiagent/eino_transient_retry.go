@@ -60,6 +60,7 @@ func isEinoTransientRunError(err error) bool {
 		"bad gateway",
 		"gateway timeout",
 		"internal server error",
+		"unexpected internal error",
 		"connection reset",
 		"connection refused",
 		"connection closed",
@@ -72,6 +73,7 @@ func isEinoTransientRunError(err error) bool {
 		"dial tcp",
 		"tls handshake timeout",
 		"stream error",
+		"failed to receive stream chunk",
 		"goaway", // http2: server sent GOAWAY and closed the connection
 		"unexpected eof",
 		`": eof`, // net/http: Post "url": EOF (often wraps io.EOF)
@@ -136,7 +138,8 @@ func einoTransientRunErrorUserDetail(err error) (kind, summary string) {
 		case strings.Contains(lower, "overloaded") ||
 			strings.Contains(lower, "capacity") ||
 			strings.Contains(lower, "temporarily unavailable") ||
-			strings.Contains(lower, "service unavailable"):
+			strings.Contains(lower, "service unavailable") ||
+			strings.Contains(lower, "unexpected internal error"):
 			kind = "upstream_busy"
 		case strings.Contains(lower, "connection reset") ||
 			strings.Contains(lower, "connection refused") ||
@@ -153,6 +156,7 @@ func einoTransientRunErrorUserDetail(err error) (kind, summary string) {
 			strings.Contains(lower, "unexpected eof"):
 			kind = "network"
 		case strings.Contains(lower, "stream error") ||
+			strings.Contains(lower, "failed to receive stream chunk") ||
 			strings.Contains(lower, "unexpected end of json"):
 			kind = "stream"
 		default:

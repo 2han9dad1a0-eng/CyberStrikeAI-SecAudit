@@ -34,6 +34,7 @@ func TestIsEinoTransientRunError(t *testing.T) {
 		{"rate limit", errors.New(`{"error":"rate limit exceeded"}`), true},
 		{"connection reset", errors.New("read tcp: connection reset by peer"), true},
 		{"http2 goaway", errors.New("failed to receive stream chunk: error, http2: server sent GOAWAY and closed the connection; LastStreamID=791, ErrCode=NO_ERROR"), true},
+		{"unexpected internal stream chunk", errors.New("failed to receive stream chunk: error, The service encountered an unexpected internal error. Request id: 0217851391106464f01ec66621d0980a42fd45436ed75957a6a0a"), true},
 		{"unexpected eof", errors.New("unexpected EOF"), true},
 		{"503", errors.New("upstream returned 503"), true},
 		{"iteration limit", errors.New("max iteration reached"), false},
@@ -74,6 +75,7 @@ func TestEinoTransientRunErrorUserDetail(t *testing.T) {
 		{"upstream", errors.New("upstream returned 503"), "upstream_server"},
 		{"network", errors.New("read tcp: connection reset by peer"), "network"},
 		{"stream", errors.New("unexpected end of JSON"), "stream"},
+		{"stream chunk", errors.New("failed to receive stream chunk: error, The service encountered an unexpected internal error. Request id: abc"), "upstream_busy"},
 	}
 	for _, tc := range cases {
 		tc := tc
