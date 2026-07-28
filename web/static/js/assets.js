@@ -1147,6 +1147,7 @@ async function sendAssetsToChat(assets, template) {
     input.value = message;
     if (typeof adjustTextareaHeight === 'function') adjustTextareaHeight(input);
     // 消息流可能持续很久；启动发送即可返回，让提交弹窗立即关闭。
+    window.__csNextChatFinalizationPolicy = { requireExecutionEvidence: true };
     void sendMessage();
 }
 

@@ -3990,6 +3990,17 @@ html[data-theme="dark"] .new-chat-btn:focus-visible {
     border-top-left-radius: 2px;
 }
 
+.message.assistant.assistant-not-finalized .message-bubble {
+    border-color: rgba(245, 124, 0, 0.28);
+    border-left: 4px solid #f57c00;
+    background: linear-gradient(90deg, rgba(245, 124, 0, 0.08), rgba(245, 124, 0, 0.035));
+    box-shadow: 0 6px 18px rgba(245, 124, 0, 0.08);
+}
+
+.message.assistant.assistant-not-finalized .message-bubble strong:first-child {
+    color: #b45309;
+}
+
 .message.assistant .message-bubble pre {
     margin: 0;
     white-space: pre-wrap;
@@ -7379,6 +7390,16 @@ html[data-theme="dark"] .login-card .login-submit:disabled {
 .timeline-item-warning {
     border-left-color: #f57c00;
     background: rgba(245, 124, 0, 0.09);
+}
+
+.timeline-item-finalization_check {
+    border-left-color: #f57c00;
+    background: linear-gradient(90deg, rgba(245, 124, 0, 0.1), rgba(96, 125, 139, 0.045));
+}
+
+.timeline-item-finalization_check .timeline-item-title {
+    color: #9a5200;
+    font-weight: 600;
 }
 
 .timeline-item-tool_calls_detected {
@@ -22967,6 +22988,18 @@ tr.mcp-stats-tool-row[data-tool-name]:focus-visible {
     font-weight: 500;
     color: var(--text-secondary);
 }
+
+.webshell-ai-timeline-finalization_check {
+    border-left: 3px solid #f57c00;
+    padding-left: 10px;
+    background: linear-gradient(90deg, rgba(245, 124, 0, 0.08), transparent);
+}
+
+.webshell-ai-timeline-finalization_check .webshell-ai-timeline-title {
+    color: #9a5200;
+    font-weight: 600;
+}
+
 .webshell-ai-timeline-msg {
     margin-top: 4px;
     padding-left: 0;
@@ -23143,6 +23176,11 @@ tr.mcp-stats-tool-row[data-tool-name]:focus-visible {
     align-self: flex-start;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
+}
+.webshell-ai-msg.assistant.webshell-ai-candidate-output {
+    border-color: rgba(245, 124, 0, 0.28);
+    background: linear-gradient(90deg, rgba(245, 124, 0, 0.08), rgba(245, 124, 0, 0.035));
+    box-shadow: 0 6px 16px rgba(245, 124, 0, 0.08);
 }
 .webshell-ai-msg.assistant.webshell-ai-msg-error {
     max-width: 72%;
@@ -36232,10 +36270,40 @@ html[data-theme="dark"] .timeline-item-user_interrupt_continue {
     background: rgba(251, 191, 36, 0.08);
 }
 
+html[data-theme="dark"] .timeline-item-finalization_check {
+    background: linear-gradient(90deg, rgba(251, 191, 36, 0.1), rgba(30, 41, 59, 0.18));
+    border-left-color: #fbbf24;
+}
+
+html[data-theme="dark"] .timeline-item-finalization_check .timeline-item-title,
+html[data-theme="dark"] .webshell-ai-timeline-finalization_check .webshell-ai-timeline-title {
+    color: #fbbf24;
+}
+
 html[data-theme="dark"] .message.assistant .message-bubble {
     background: #111827;
     color: var(--text-primary);
     border-color: var(--border-color);
+}
+
+html[data-theme="dark"] .message.assistant.assistant-not-finalized .message-bubble {
+    border-color: rgba(251, 191, 36, 0.24);
+    border-left-color: #fbbf24;
+    background: linear-gradient(90deg, rgba(251, 191, 36, 0.08), rgba(17, 24, 39, 0.9));
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .message.assistant.assistant-not-finalized .message-bubble strong:first-child {
+    color: #fbbf24;
+}
+
+html[data-theme="dark"] .webshell-ai-timeline-finalization_check {
+    border-left-color: #fbbf24;
+    background: linear-gradient(90deg, rgba(251, 191, 36, 0.08), rgba(17, 24, 39, 0.12));
+}
+
+html[data-theme="dark"] .webshell-ai-msg.assistant.webshell-ai-candidate-output {
+    background: linear-gradient(90deg, rgba(251, 191, 36, 0.08), rgba(17, 24, 39, 0.12));
 }
 
 html[data-theme="dark"] .message-copy-btn {

@@ -80,6 +80,7 @@ let chatAttachmentSeq = 0;
 
 // 对话模式：eino_single = Eino ADK 单代理（/api/eino-agent/stream）；deep / plan_execute / supervisor = Eino 多代理（/api/multi-agent/stream，请求体 orchestration）
 const AGENT_MODE_STORAGE_KEY = 'cyberstrike-chat-agent-mode';
+const AGENT_MODE_CONVERSATION_STORAGE_PREFIX = 'cyberstrike-chat-agent-mode:conversation';
 const AI_CHANNEL_STORAGE_KEY = 'cyberstrike-chat-ai-channel';
 const REASONING_MODE_LS = 'cyberstrike-chat-reasoning-mode';
 const REASONING_EFFORT_LS = 'cyberstrike-chat-reasoning-effort';
@@ -733,6 +734,44 @@ function chatAgentModeNormalizeStored(stored, cfg) {
     return CHAT_AGENT_MODE_EINO_SINGLE;
 }
 
+function normalizeConversationAgentModeForUI(mode) {
+    const v = String(mode || '').trim().toLowerCase().replace(/-/g, '_');
+    if (chatAgentModeIsEinoSingle(v)) return v;
+    if (chatAgentModeIsEino(v)) {
+        return multiAgentAPIEnabled ? v : CHAT_AGENT_MODE_EINO_SINGLE;
+    }
+    return '';
+}
+
+function conversationAgentModeStorageKey(conversationId) {
+    return `${AGENT_MODE_CONVERSATION_STORAGE_PREFIX}:${String(conversationId || '').trim()}`;
+}
+
+function readConversationAgentModePreference(conversationId) {
+    if (!conversationId) return '';
+    try {
+        return normalizeConversationAgentModeForUI(localStorage.getItem(conversationAgentModeStorageKey(conversationId)) || '');
+    } catch (e) {
+        return '';
+    }
+}
+
+function saveConversationAgentModePreference(conversationId, mode) {
+    const normalized = normalizeConversationAgentModeForUI(mode);
+    if (!conversationId || !normalized) return;
+    try {
+        localStorage.setItem(conversationAgentModeStorageKey(conversationId), normalized);
+    } catch (e) { /* ignore */ }
+}
+
+function applyConversationAgentMode(conversationId, conversation) {
+    const saved = readConversationAgentModePreference(conversationId);
+    const fromServer = normalizeConversationAgentModeForUI(conversation && (conversation.agentMode || conversation.agent_mode));
+    const mode = saved || fromServer;
+    if (!mode) return;
+    syncAgentModeFromValue(mode);
+}
+
 if (typeof window !== 'undefined') {
     window.csaiHitlGlobalToolWhitelist = window.csaiHitlGlobalToolWhitelist || [];
     window.csaiHitlDefaultReviewer = window.csaiHitlDefaultReviewer || 'human';
@@ -1098,6 +1137,7 @@ function toggleAgentModePanel() {
 function selectAgentMode(mode) {
     const ok = chatAgentModeIsEinoSingle(mode) || chatAgentModeIsEino(mode);
     if (!ok) return;
+    saveConversationAgentModePreference(currentConversationId, mode);
     try {
         localStorage.setItem(AGENT_MODE_STORAGE_KEY, mode);
     } catch (e) { /* ignore */ }
@@ -1351,6 +1391,10 @@ async function sendMessage() {
         conversationId: currentConversationId,
         role: typeof getCurrentRole === 'function' ? getCurrentRole() : ''
     };
+    if (window.__csNextChatFinalizationPolicy && typeof window.__csNextChatFinalizationPolicy === 'object') {
+        body.finalization = window.__csNextChatFinalizationPolicy;
+        window.__csNextChatFinalizationPolicy = null;
+    }
     let streamConversationId = body.conversationId ? String(body.conversationId) : null;
     const isStreamStillVisibleForRequest = function () {
         if (!document.getElementById(progressId)) return false;
@@ -1405,6 +1449,7 @@ async function sendMessage() {
     try {
         const modeSel = document.getElementById('agent-mode-select');
         let modeVal = modeSel ? modeSel.value : CHAT_AGENT_MODE_EINO_SINGLE;
+        saveConversationAgentModePreference(streamConversationId || currentConversationId, modeVal);
         const useMulti = multiAgentAPIEnabled && chatAgentModeIsEino(modeVal);
         const streamPath = useMulti ? '/api/multi-agent/stream' : '/api/eino-agent/stream';
         if (useMulti && modeVal) {
@@ -4845,6 +4890,7 @@ async function loadConversation(conversationId) {
         if (typeof window.setCurrentRole === 'function') {
             window.setCurrentRole(conversationRoleName || '默认');
         }
+        applyConversationAgentMode(conversationId, conversation);
         try {
             window.currentConversationId = conversationId;
         } catch (e) { /* ignore */ }

@@ -1334,6 +1334,7 @@ function scanFofaRow(encodedRowJson, clickEvent) {
         }
         if (autoSend) {
             if (typeof sendMessage === 'function') {
+                window.__csNextChatFinalizationPolicy = { requireExecutionEvidence: true };
                 sendMessage();
             } else {
                 alert(_t('infoCollect.noSendMessage'));
