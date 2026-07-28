@@ -333,17 +333,24 @@ type ChatReasoningRequest struct {
 	Effort string `json:"effort,omitempty"`
 }
 
+// ChatFinalizationRequest is a caller-provided delivery policy. The server does
+// not infer execution intent from natural-language user text.
+type ChatFinalizationRequest struct {
+	RequireExecutionEvidence *bool `json:"requireExecutionEvidence,omitempty"`
+}
+
 // ChatRequest 聊天请求
 type ChatRequest struct {
-	Message              string                `json:"message" binding:"required"`
-	ConversationID       string                `json:"conversationId,omitempty"`
-	ProjectID            string                `json:"projectId,omitempty"` // 新对话绑定的项目（可选；未指定时可用 config.project.default_project_id）
-	Role                 string                `json:"role,omitempty"`      // 角色名称
-	Attachments          []ChatAttachment      `json:"attachments,omitempty"`
-	WebShellConnectionID string                `json:"webshellConnectionId,omitempty"` // WebShell 管理 - AI 助手：当前选中的连接 ID，仅使用 webshell_* 工具
-	AIChannelID          string                `json:"aiChannelId,omitempty"`          // 会话级 AI 通道；空则使用 ai.default_channel
-	Hitl                 *HITLRequest          `json:"hitl,omitempty"`
-	Reasoning            *ChatReasoningRequest `json:"reasoning,omitempty"`
+	Message              string                  `json:"message" binding:"required"`
+	ConversationID       string                  `json:"conversationId,omitempty"`
+	ProjectID            string                  `json:"projectId,omitempty"` // 新对话绑定的项目（可选；未指定时可用 config.project.default_project_id）
+	Role                 string                  `json:"role,omitempty"`      // 角色名称
+	Attachments          []ChatAttachment        `json:"attachments,omitempty"`
+	WebShellConnectionID string                  `json:"webshellConnectionId,omitempty"` // WebShell 管理 - AI 助手：当前选中的连接 ID，仅使用 webshell_* 工具
+	AIChannelID          string                  `json:"aiChannelId,omitempty"`          // 会话级 AI 通道；空则使用 ai.default_channel
+	Hitl                 *HITLRequest            `json:"hitl,omitempty"`
+	Reasoning            *ChatReasoningRequest   `json:"reasoning,omitempty"`
+	Finalization         ChatFinalizationRequest `json:"finalization,omitempty"`
 	// Orchestration 仅对 /api/multi-agent、/api/multi-agent/stream：deep | plan_execute | supervisor；空则等同 deep。机器人/批量等无请求体时由服务端默认 deep。/api/eino-agent* 不使用此字段。
 	Orchestration string `json:"orchestration,omitempty"`
 }
@@ -668,10 +675,18 @@ func (h *AgentHandler) mergeAssistantMessagePartialOnCancel(messageID, partial s
 
 // ChatResponse 聊天响应
 type ChatResponse struct {
-	Response        string    `json:"response"`
-	MCPExecutionIDs []string  `json:"mcpExecutionIds,omitempty"` // 本次对话中执行的MCP调用ID列表
-	ConversationID  string    `json:"conversationId"`            // 对话ID
-	Time            time.Time `json:"time"`
+	Response            string    `json:"response"`
+	MCPExecutionIDs     []string  `json:"mcpExecutionIds,omitempty"` // 本次对话中执行的MCP调用ID列表
+	ConversationID      string    `json:"conversationId"`            // 对话ID
+	Time                time.Time `json:"time"`
+	Finalizable         bool      `json:"finalizable"`
+	Finalized           bool      `json:"finalized"`
+	Status              string    `json:"status,omitempty"`
+	CompletionReason    string    `json:"completionReason,omitempty"`
+	EvidenceVerified    bool      `json:"evidenceVerified"`
+	EvidenceRefs        []string  `json:"evidenceRefs,omitempty"`
+	PendingExecutionIDs []string  `json:"pendingExecutionIds,omitempty"`
+	MissingChecks       []string  `json:"missingChecks,omitempty"`
 }
 
 func (h *AgentHandler) finalizeRobotAgentError(ctx context.Context, assistantMessageID, conversationID string, resultMA *multiagent.RunResult, errMA error) (string, string, error) {
@@ -687,19 +702,20 @@ func (h *AgentHandler) finalizeRobotAgentError(ctx context.Context, assistantMes
 }
 
 func (h *AgentHandler) finalizeRobotAgentSuccess(assistantMessageID, conversationID string, resultMA *multiagent.RunResult) (string, string, error) {
-	if assistantMessageID != "" {
-		if errU := h.db.UpdateAssistantMessageFinalize(assistantMessageID, resultMA.Response, resultMA.MCPExecutionIDs, multiagent.AggregatedReasoningFromTraceJSON(resultMA.LastAgentTraceInput)); errU != nil {
-			h.logger.Warn("机器人：更新助手消息失败", zap.Error(errU))
-		}
-	} else {
-		if _, err := h.db.AddMessage(conversationID, "assistant", resultMA.Response, resultMA.MCPExecutionIDs); err != nil {
+	decision := h.finalizeAgentRunForDeliveryWithPolicy(conversationID, assistantMessageID, "robot", resultMA, resultMA.MCPExecutionIDs, multiagent.AggregatedReasoningFromTraceJSON(resultMA.LastAgentTraceInput), true)
+	responseText := decision.FinalText
+	if !decision.Finalizable {
+		responseText = finalizationBlockedMessage(decision)
+	}
+	if assistantMessageID == "" {
+		if _, err := h.db.AddMessage(conversationID, "assistant", responseText, resultMA.MCPExecutionIDs); err != nil {
 			h.logger.Warn("机器人：保存助手消息失败", zap.Error(err))
 		}
 	}
 	if resultMA.LastAgentTraceInput != "" || resultMA.LastAgentTraceOutput != "" {
 		_ = h.db.SaveAgentTrace(conversationID, resultMA.LastAgentTraceInput, resultMA.LastAgentTraceOutput)
 	}
-	return resultMA.Response, conversationID, nil
+	return responseText, conversationID, nil
 }
 
 func (h *AgentHandler) runRobotEinoSingleWithRetry(
@@ -830,6 +846,9 @@ func (h *AgentHandler) ProcessMessageForRobot(ctx context.Context, platform stri
 	progressCallback := h.createProgressCallback(taskCtx, cancelWithCause, conversationID, assistantMessageID, nil)
 
 	robotMode := config.NormalizeAgentMode(agentMode)
+	if err := h.db.SetConversationAgentMode(conversationID, robotMode); err != nil {
+		h.logger.Warn("机器人：更新对话模式失败", zap.String("conversationId", conversationID), zap.String("agentMode", robotMode), zap.Error(err))
+	}
 	switch robotMode {
 	case "eino_single":
 		return h.runRobotEinoSingleWithRetry(taskCtx, conversationID, finalMessage, agentHistoryMessages, roleTools, progressCallback, assistantMessageID, &taskStatus)

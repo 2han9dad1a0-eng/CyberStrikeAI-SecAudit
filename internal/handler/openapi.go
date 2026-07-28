@@ -35,6 +35,17 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 		scheme = "https"
 	}
 
+	finalizationRequestSchema := map[string]interface{}{
+		"type":        "object",
+		"description": "最终回复交付策略。后端不会从自然语言内容推断执行意图；执行入口应显式声明是否要求 completed 工具证据。",
+		"properties": map[string]interface{}{
+			"requireExecutionEvidence": map[string]interface{}{
+				"type":        "boolean",
+				"description": "为 true 时，缺少 completed 工具执行记录会触发无注入续跑或最终阻断；普通聊天可省略或设为 false。",
+			},
+		},
+	}
+
 	spec := map[string]interface{}{
 		"openapi": "3.0.0",
 		"info": map[string]interface{}{
@@ -84,6 +95,70 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 						},
 					},
 					"required": []string{"projectId"},
+				},
+				"AgentChatResponse": map[string]interface{}{
+					"type":        "object",
+					"description": "Agent 非流式响应。response 只是交付文本；是否为成功最终回复必须以 finalized/finalizable/status 为准。",
+					"properties": map[string]interface{}{
+						"response": map[string]interface{}{
+							"type":        "string",
+							"description": "交付给用户的文本。finalized=false 时为阻断/未完成说明，不是成功结论。",
+						},
+						"conversationId": map[string]interface{}{
+							"type":        "string",
+							"description": "对话 ID",
+						},
+						"assistantMessageId": map[string]interface{}{
+							"type":        "string",
+							"description": "助手消息 ID（部分接口返回）",
+						},
+						"mcpExecutionIds": map[string]interface{}{
+							"type":        "array",
+							"description": "本轮关联的 MCP 工具执行 ID",
+							"items":       map[string]interface{}{"type": "string"},
+						},
+						"agentMode": map[string]interface{}{
+							"type":        "string",
+							"description": "agent 模式，例如 eino_single、eino_deep、workflow",
+						},
+						"finalized": map[string]interface{}{
+							"type":        "boolean",
+							"description": "是否已经通过最终回复检查。只有 true 才能当成功最终回复。",
+						},
+						"finalizable": map[string]interface{}{
+							"type":        "boolean",
+							"description": "候选输出是否可提升为最终回复。",
+						},
+						"status": map[string]interface{}{
+							"type":        "string",
+							"description": "最终化状态",
+							"enum":        []string{"completed", "in_progress", "blocked", "failed", "cancelled", "awaiting_hitl"},
+						},
+						"completionReason": map[string]interface{}{
+							"type":        "string",
+							"description": "最终化或阻断原因，例如 verified、pending_tool_executions、missing_execution_evidence",
+						},
+						"evidenceVerified": map[string]interface{}{
+							"type":        "boolean",
+							"description": "证据是否满足最终化要求",
+						},
+						"evidenceRefs": map[string]interface{}{
+							"type":        "array",
+							"description": "证据引用，例如 mcp_execution:<id>",
+							"items":       map[string]interface{}{"type": "string"},
+						},
+						"pendingExecutionIds": map[string]interface{}{
+							"type":        "array",
+							"description": "仍处于 queued/running 的工具执行 ID",
+							"items":       map[string]interface{}{"type": "string"},
+						},
+						"missingChecks": map[string]interface{}{
+							"type":        "array",
+							"description": "未通过最终化检查的原因列表",
+							"items":       map[string]interface{}{"type": "string"},
+						},
+					},
+					"required": []string{"response", "conversationId", "finalized", "finalizable", "status", "evidenceVerified"},
 				},
 				"Conversation": map[string]interface{}{
 					"type": "object",
@@ -1581,6 +1656,7 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 										"conversationId":       map[string]interface{}{"type": "string"},
 										"role":                 map[string]interface{}{"type": "string"},
 										"webshellConnectionId": map[string]interface{}{"type": "string"},
+										"finalization":         finalizationRequestSchema,
 									},
 									"required": []string{"message"},
 								},
@@ -1588,7 +1664,14 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "成功，响应格式同 /api/eino-agent"},
+						"200": map[string]interface{}{
+							"description": "成功。只有 finalized=true 表示成功最终回复；finalized=false 时 response 为未完成/阻断说明。",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/AgentChatResponse"},
+								},
+							},
+						},
 						"400": map[string]interface{}{"description": "参数错误"},
 						"401": map[string]interface{}{"description": "未授权"},
 						"500": map[string]interface{}{"description": "执行失败"},
@@ -1599,7 +1682,7 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 				"post": map[string]interface{}{
 					"tags":        []string{"对话交互"},
 					"summary":     "发送消息并获取 AI 回复（Eino ADK 单代理，SSE）",
-					"description": "向 AI 发送消息并获取流式回复（SSE）。由 Eino **单代理** ADK 执行；事件类型与多代理流式一致（含 `tool_call` / `response_delta` / `thinking` 等）。**不依赖** `multi_agent.enabled`。",
+					"description": "向 AI 发送消息并获取流式回复（SSE）。由 Eino **单代理** ADK 执行；事件类型与多代理流式一致（含 `tool_call` / `response_delta` / `thinking` 等）。`response_start` / `response_delta` 仅为候选/过程输出；只有 `type: response` 且 `data.finalized=true` 才表示成功最终回复。缺 completed 执行证据时可能先发送 `finalization_auto_continue`，表示服务端基于已有 trace 无注入续跑。`data.finalized=false` 时 message 为未完成/阻断说明。**不依赖** `multi_agent.enabled`。",
 					"operationId": "sendMessageEinoSingleAgentStream",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1612,6 +1695,7 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 										"conversationId":       map[string]interface{}{"type": "string"},
 										"role":                 map[string]interface{}{"type": "string"},
 										"webshellConnectionId": map[string]interface{}{"type": "string"},
+										"finalization":         finalizationRequestSchema,
 									},
 									"required": []string{"message"},
 								},
@@ -1625,7 +1709,7 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 								"text/event-stream": map[string]interface{}{
 									"schema": map[string]interface{}{
 										"type":        "string",
-										"description": "SSE 流",
+										"description": "SSE 流。终态 response 事件 data 包含 finalized、finalizable、status、completionReason、evidenceVerified、evidenceRefs、pendingExecutionIds、missingChecks；过程事件可能包含 finalization_auto_continue。",
 									},
 								},
 							},
@@ -1663,6 +1747,7 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 											"type":        "string",
 											"description": "WebShell 连接 ID（可选，与 Eino 单/多代理流式行为一致）",
 										},
+										"finalization": finalizationRequestSchema,
 										"orchestration": map[string]interface{}{
 											"type":        "string",
 											"description": "Eino 预置编排：deep | plan_execute | supervisor；缺省 deep",
@@ -1676,7 +1761,12 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "成功，响应格式同 /api/eino-agent",
+							"description": "成功。只有 finalized=true 表示成功最终回复；finalized=false 时 response 为未完成/阻断说明。",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/AgentChatResponse"},
+								},
+							},
 						},
 						"400": map[string]interface{}{"description": "参数错误"},
 						"401": map[string]interface{}{"description": "未授权"},
@@ -1689,7 +1779,7 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 				"post": map[string]interface{}{
 					"tags":        []string{"对话交互"},
 					"summary":     "发送消息并获取 AI 回复（Eino 多代理，SSE）",
-					"description": "与 `POST /api/eino-agent/stream` 类似；由 Eino 多代理执行。`orchestration` 指定 deep / plan_execute / supervisor，缺省 deep。**前提**：`multi_agent.enabled: true`；未启用时 SSE 内首条为 `type: error` 后接 `done`。支持 `webshellConnectionId`。",
+					"description": "与 `POST /api/eino-agent/stream` 类似；由 Eino 多代理执行。`orchestration` 指定 deep / plan_execute / supervisor，缺省 deep。`response_start` / `response_delta` 仅为候选/过程输出；只有 `type: response` 且 `data.finalized=true` 才表示成功最终回复。缺 completed 执行证据时可能先发送 `finalization_auto_continue`，表示服务端基于已有 trace 无注入续跑。**前提**：`multi_agent.enabled: true`；未启用时 SSE 内首条为 `type: error` 后接 `done`。支持 `webshellConnectionId`。",
 					"operationId": "sendMessageMultiAgentStream",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1702,6 +1792,7 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 										"conversationId":       map[string]interface{}{"type": "string"},
 										"role":                 map[string]interface{}{"type": "string"},
 										"webshellConnectionId": map[string]interface{}{"type": "string"},
+										"finalization":         finalizationRequestSchema,
 										"orchestration": map[string]interface{}{
 											"type":        "string",
 											"description": "deep | plan_execute | supervisor；缺省 deep",
@@ -1720,7 +1811,7 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 								"text/event-stream": map[string]interface{}{
 									"schema": map[string]interface{}{
 										"type":        "string",
-										"description": "SSE 流",
+										"description": "SSE 流。终态 response 事件 data 包含 finalized、finalizable、status、completionReason、evidenceVerified、evidenceRefs、pendingExecutionIds、missingChecks；过程事件可能包含 finalization_auto_continue。",
 									},
 								},
 							},

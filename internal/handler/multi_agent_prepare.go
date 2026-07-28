@@ -6,6 +6,7 @@ import (
 
 	"cyberstrike-ai/internal/agent"
 	"cyberstrike-ai/internal/audit"
+	"cyberstrike-ai/internal/config"
 	"cyberstrike-ai/internal/database"
 	"cyberstrike-ai/internal/mcp/builtin"
 	"cyberstrike-ai/internal/security"
@@ -23,6 +24,13 @@ type multiAgentPrepared struct {
 	RoleTools          []string
 	AssistantMessageID string
 	UserMessageID      string
+}
+
+func chatRequestAgentMode(req *ChatRequest, source string) string {
+	if strings.HasPrefix(strings.TrimSpace(source), "multi_agent") {
+		return config.NormalizeMultiAgentOrchestration(req.Orchestration)
+	}
+	return "eino_single"
 }
 
 func (h *AgentHandler) prepareMultiAgentSession(req *ChatRequest, c *gin.Context, source string) (*multiAgentPrepared, error) {
@@ -57,6 +65,7 @@ func (h *AgentHandler) prepareMultiAgentSession(req *ChatRequest, c *gin.Context
 		meta := audit.ConversationCreateMetaFromGin(c, source)
 		meta.ProjectID = projectID
 		meta.RoleName = req.Role
+		meta.AgentMode = chatRequestAgentMode(req, source)
 		if webshellID != "" {
 			meta.Source = source + "_webshell"
 			meta.WebShellConnectionID = webshellID
@@ -83,6 +92,9 @@ func (h *AgentHandler) prepareMultiAgentSession(req *ChatRequest, c *gin.Context
 	}
 	if err := h.db.SetConversationRoleName(conversationID, req.Role); err != nil {
 		h.logger.Warn("更新对话角色失败", zap.String("conversationId", conversationID), zap.String("role", req.Role), zap.Error(err))
+	}
+	if err := h.db.SetConversationAgentMode(conversationID, chatRequestAgentMode(req, source)); err != nil {
+		h.logger.Warn("更新对话模式失败", zap.String("conversationId", conversationID), zap.String("source", source), zap.String("orchestration", req.Orchestration), zap.Error(err))
 	}
 
 	agentHistoryMessages, err := h.loadHistoryFromAgentTrace(conversationID)

@@ -152,20 +152,37 @@ func (h *AgentHandler) runRoleWorkflowStreamIfBound(
 		sendEvent("done", "", map[string]interface{}{"conversationId": conversationID})
 		return true
 	}
-	if prep.AssistantMessageID != "" {
-		_ = h.db.UpdateAssistantMessageFinalize(prep.AssistantMessageID, result.Response, nil, "")
+	decision := h.finalizeCandidateForDeliveryWithPolicy(
+		prep.ConversationID,
+		prep.AssistantMessageID,
+		"workflow",
+		result.Response,
+		nil,
+		result.AwaitingHITL,
+		"",
+		true,
+	)
+	responseText := decision.FinalText
+	if !decision.Finalizable {
+		responseText = finalizationBlockedMessage(decision)
+		taskStatus = decision.Status
+		h.tasks.UpdateTaskStatus(conversationID, taskStatus)
+		sendEvent("finalization_check", responseText, decision)
 	}
-	payload := map[string]interface{}{
+	payload := finalizationResponsePayload(decision, map[string]interface{}{
 		"conversationId": prep.ConversationID,
 		"messageId":      prep.AssistantMessageID,
 		"agentMode":      "workflow",
 		"workflowRunId":  result.RunID,
-	}
+	})
 	if result.AwaitingHITL {
 		payload["workflowStatus"] = "awaiting_hitl"
 		payload["awaitingHitl"] = true
+	} else {
+		payload["workflowStatus"] = result.Status
+		payload["awaitingHitl"] = false
 	}
-	sendEvent("response", result.Response, payload)
+	sendEvent("response", responseText, payload)
 	sendEvent("done", "", map[string]interface{}{"conversationId": prep.ConversationID})
 	return true
 }
@@ -251,17 +268,37 @@ func (h *AgentHandler) runRoleWorkflowJSONIfBound(c *gin.Context, req *ChatReque
 		c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg, "conversationId": conversationID})
 		return true
 	}
-	if prep.AssistantMessageID != "" {
-		_ = h.db.UpdateAssistantMessageFinalize(prep.AssistantMessageID, result.Response, nil, "")
+	decision := h.finalizeCandidateForDeliveryWithPolicy(
+		prep.ConversationID,
+		prep.AssistantMessageID,
+		"workflow",
+		result.Response,
+		nil,
+		result.AwaitingHITL,
+		"",
+		true,
+	)
+	responseText := decision.FinalText
+	if !decision.Finalizable {
+		responseText = finalizationBlockedMessage(decision)
+		taskStatus = decision.Status
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"response":           result.Response,
-		"conversationId":     prep.ConversationID,
-		"assistantMessageId": prep.AssistantMessageID,
-		"agentMode":          "workflow",
-		"workflowRunId":      result.RunID,
-		"workflowStatus":     result.Status,
-		"awaitingHitl":       result.AwaitingHITL,
+		"response":            responseText,
+		"conversationId":      prep.ConversationID,
+		"assistantMessageId":  prep.AssistantMessageID,
+		"agentMode":           "workflow",
+		"workflowRunId":       result.RunID,
+		"workflowStatus":      result.Status,
+		"awaitingHitl":        result.AwaitingHITL,
+		"finalized":           decision.Finalized,
+		"finalizable":         decision.Finalizable,
+		"status":              decision.Status,
+		"completionReason":    decision.CompletionReason,
+		"evidenceVerified":    decision.EvidenceVerified,
+		"evidenceRefs":        decision.EvidenceRefs,
+		"pendingExecutionIds": decision.PendingExecutionIDs,
+		"missingChecks":       decision.MissingChecks,
 	})
 	return true
 }

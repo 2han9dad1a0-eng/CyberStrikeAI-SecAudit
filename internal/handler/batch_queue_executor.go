@@ -238,6 +238,11 @@ func (h *AgentHandler) executeOneBatchSubTask(queueID string, queue *BatchTaskQu
 		useBatchMulti = true
 		batchOrch = "deep"
 	}
+	if useBatchMulti {
+		_ = h.db.SetConversationAgentMode(conversationID, batchOrch)
+	} else {
+		_ = h.db.SetConversationAgentMode(conversationID, "eino_single")
+	}
 
 	var resultMA *multiagent.RunResult
 	var runErr error
@@ -268,19 +273,38 @@ func (h *AgentHandler) executeOneBatchSubTask(queueID string, queue *BatchTaskQu
 
 	h.logger.Info("批量任务执行成功", zap.String("queueId", queueID), zap.String("taskId", task.ID), zap.String("conversationId", conversationID))
 
-	resText := resultMA.Response
 	mcpIDs := resultMA.MCPExecutionIDs
 	lastIn := resultMA.LastAgentTraceInput
 	lastOut := resultMA.LastAgentTraceOutput
+	reasoningContent := multiagent.AggregatedReasoningFromTraceJSON(lastIn)
+	agentMode := "batch_eino_single"
+	if useBatchMulti {
+		agentMode = "batch_eino_" + batchOrch
+	}
+	decision := h.finalizeAgentRunForDeliveryWithPolicy(conversationID, assistantMessageID, agentMode, resultMA, mcpIDs, reasoningContent, true)
+	resText := decision.FinalText
+	if !decision.Finalizable {
+		resText = finalizationBlockedMessage(decision)
+		finishStatus = decision.Status
+		sendEvent("finalization_check", resText, decision)
+	}
+	sendEvent("response", resText, finalizationResponsePayload(decision, map[string]interface{}{
+		"conversationId":   conversationID,
+		"messageId":        assistantMessageID,
+		"agentMode":        agentMode,
+		"mcpExecutionIds":  mcpIDs,
+		"batchQueueId":     queueID,
+		"batchTaskId":      task.ID,
+		"batchTaskStatus":  map[bool]string{true: string(BatchTaskStatusCompleted), false: string(BatchTaskStatusFailed)}[decision.Finalizable],
+		"candidatePreview": safeTruncateString(resultMA.Response, 500),
+	}))
 
-	if assistantMessageID != "" {
-		if updateErr := h.db.UpdateAssistantMessageFinalize(assistantMessageID, resText, mcpIDs, multiagent.AggregatedReasoningFromTraceJSON(lastIn)); updateErr != nil {
-			h.logger.Warn("更新助手消息失败", zap.String("queueId", queueID), zap.String("taskId", task.ID), zap.Error(updateErr))
-			if _, err = h.db.AddMessage(conversationID, "assistant", resText, mcpIDs); err != nil {
-				h.logger.Error("保存助手消息失败", zap.String("queueId", queueID), zap.String("taskId", task.ID), zap.String("conversationId", conversationID), zap.Error(err))
-			}
-		}
-	} else if _, err = h.db.AddMessage(conversationID, "assistant", resText, mcpIDs); err != nil {
+	if assistantMessageID == "" {
+		_, err = h.db.AddMessage(conversationID, "assistant", resText, mcpIDs)
+	} else if !decision.Finalizable {
+		err = nil
+	}
+	if err != nil {
 		h.logger.Error("保存助手消息失败", zap.String("queueId", queueID), zap.String("taskId", task.ID), zap.String("conversationId", conversationID), zap.Error(err))
 	}
 
@@ -290,6 +314,10 @@ func (h *AgentHandler) executeOneBatchSubTask(queueID string, queue *BatchTaskQu
 		}
 	}
 
+	if !decision.Finalizable {
+		h.batchTaskManager.UpdateTaskStatusWithConversationID(queueID, task.ID, BatchTaskStatusFailed, resText, finalizationCheckMessage(decision), conversationID)
+		return
+	}
 	h.batchTaskManager.UpdateTaskStatusWithConversationID(queueID, task.ID, BatchTaskStatusCompleted, resText, "", conversationID)
 }
 
