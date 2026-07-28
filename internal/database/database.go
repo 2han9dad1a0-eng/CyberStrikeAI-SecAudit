@@ -184,6 +184,7 @@ func (db *DB) initTables() error {
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL,
 		role_name TEXT NOT NULL DEFAULT '默认',
+		agent_mode TEXT NOT NULL DEFAULT 'eino_single',
 		last_react_input TEXT,
 		last_react_output TEXT
 	);`
@@ -1171,6 +1172,21 @@ func (db *DB) migrateConversationsTable() error {
 	} else if count == 0 {
 		if _, err := db.Exec("ALTER TABLE conversations ADD COLUMN role_name TEXT NOT NULL DEFAULT '默认'"); err != nil {
 			db.logger.Warn("添加role_name字段失败", zap.Error(err))
+		}
+	}
+
+	// 检查 agent_mode 字段是否存在（对话绑定的执行模式，用于历史任务切换时恢复对话模式）
+	err = db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name='agent_mode'").Scan(&count)
+	if err != nil {
+		if _, addErr := db.Exec("ALTER TABLE conversations ADD COLUMN agent_mode TEXT NOT NULL DEFAULT 'eino_single'"); addErr != nil {
+			errMsg := strings.ToLower(addErr.Error())
+			if !strings.Contains(errMsg, "duplicate column") && !strings.Contains(errMsg, "already exists") {
+				db.logger.Warn("添加agent_mode字段失败", zap.Error(addErr))
+			}
+		}
+	} else if count == 0 {
+		if _, err := db.Exec("ALTER TABLE conversations ADD COLUMN agent_mode TEXT NOT NULL DEFAULT 'eino_single'"); err != nil {
+			db.logger.Warn("添加agent_mode字段失败", zap.Error(err))
 		}
 	}
 
