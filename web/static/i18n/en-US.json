@@ -1106,6 +1106,7 @@
     "importValidRows": "Import valid rows",
     "importValidRowsCount": "Import {{count}} valid rows",
     "importPreviewSummary": "{{total}} rows: {{valid}} valid, {{invalid}} need attention",
+    "importBackendRowError": "Excel row {{row}} (submitted valid asset #{{index}}): {{message}}",
     "previewLimited": "Showing the first 100 rows; all {{count}} rows will be processed",
     "fileTypeInvalid": "Only .xlsx and .csv files are supported",
     "fileTooLarge": "The file must not exceed 100 MB",

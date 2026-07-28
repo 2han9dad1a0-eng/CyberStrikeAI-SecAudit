@@ -358,7 +358,8 @@ function renderAssetImportPreview() {
 
 async function submitAssetImport() {
     if (assetPageState.importBusy) return;
-    const assets = assetPageState.importRows.filter(row => !row.error).map(row => row.asset);
+    const validRows = assetPageState.importRows.filter(row => !row.error);
+    const assets = validRows.map(row => row.asset);
     if (!assets.length) return;
     setAssetImportError('');
     setAssetImportBusy(true);
@@ -367,7 +368,7 @@ async function submitAssetImport() {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ assets, source: 'manual-import', source_query: assetPageState.importFileName })
         });
-        if (!response.ok) throw new Error(await assetEditorResponseError(response));
+        if (!response.ok) throw new Error(formatAssetImportSubmitError(await assetEditorResponseError(response), validRows));
         const result = await response.json();
         const invalid = assetPageState.importRows.length - assets.length;
         closeAssetImport(true);
@@ -382,6 +383,20 @@ async function submitAssetImport() {
     } finally {
         setAssetImportBusy(false);
     }
+}
+
+function formatAssetImportSubmitError(message, validRows) {
+    const text = String(message || '').trim();
+    const match = text.match(/^第\s*(\d+)\s*个资产无效[:：]\s*(.+)$/);
+    if (!match) return text;
+    const assetNumber = Number(match[1]);
+    const row = Array.isArray(validRows) ? validRows[assetNumber - 1] : null;
+    if (!row || !row.rowNumber) return text;
+    return assetT('assets.importBackendRowError', `Excel 第 ${row.rowNumber} 行（提交有效数据第 ${assetNumber} 条）: ${match[2]}`, {
+        row: row.rowNumber,
+        index: assetNumber,
+        message: match[2]
+    });
 }
 
 async function loadAssetOverview() {

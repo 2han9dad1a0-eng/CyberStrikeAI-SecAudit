@@ -1094,6 +1094,7 @@
     "importValidRows": "导入有效数据",
     "importValidRowsCount": "导入 {{count}} 条有效数据",
     "importPreviewSummary": "共 {{total}} 行，{{valid}} 行有效，{{invalid}} 行需修正",
+    "importBackendRowError": "Excel 第 {{row}} 行（提交有效数据第 {{index}} 条）：{{message}}",
     "previewLimited": "仅展示前 100 行；提交时将处理全部 {{count}} 行",
     "fileTypeInvalid": "仅支持 .xlsx 和 .csv 文件",
     "fileTooLarge": "文件不能超过 100 MB",
