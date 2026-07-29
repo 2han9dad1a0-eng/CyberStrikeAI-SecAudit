@@ -2,7 +2,8 @@
 name: proxy-tool-bootstrap
 description: >-
   自找代理+工具自举:SOCKS5/HTTP/Tor换路序列,工具Python自举,字典自生成,OOB基础设施。Use when blocked by 403/429/WAF/timeout, missing tools, or needing OOB confirmation.
-tags: [渗透测试, penetration-testing, 红队]
+metadata:
+  tags: [渗透测试, penetration-testing, 红队]
 ---
 
 ## 自找代理 + 工具自举（被拦换路，没工具自己写）

@@ -2,7 +2,8 @@
 name: unlimited-attack-scope
 description: >-
   不设限原则:搜索/验证/串联/记录一切,全领域适用,被拦换路,不达不休。Use when reminding scope is unlimited across Web/APK/cloud/AI/wireless/social eng.
-tags: [渗透测试, penetration-testing, 红队]
+metadata:
+  tags: [渗透测试, penetration-testing, 红队]
 ---
 
 ## 不设限原则

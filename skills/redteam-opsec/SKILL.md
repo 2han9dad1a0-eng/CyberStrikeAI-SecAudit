@@ -2,7 +2,8 @@
 name: redteam-opsec
 description: >-
   OPSEC隐蔽作战纪律:IP黑名单绕过,速率时序,流量混淆,最小足迹,反取证,渐进暴露。Use when maintaining stealth, bypassing IP bans, or planning covert red-team ops.
-tags: [渗透测试, penetration-testing, 红队]
+metadata:
+  tags: [渗透测试, penetration-testing, 红队]
 ---
 
 ## OPSEC / 隐蔽作战纪律（免杀 / 稳定 / 隐蔽）
