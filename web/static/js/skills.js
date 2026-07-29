@@ -168,6 +168,12 @@ function renderSkillsList() {
             ? _t('skills.cardFiles', { count: skill.file_count })
             : '';
         const metaItems = [ver, fc, sc].filter(Boolean);
+        const tags = Array.isArray(skill.tags) ? skill.tags.filter(Boolean) : [];
+        const visibleTags = tags.slice(0, 4);
+        const hiddenTagCount = Math.max(0, tags.length - visibleTags.length);
+        const tagsHtml = visibleTags.length
+            ? `<div class="skill-card-tags">${visibleTags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}${hiddenTagCount ? `<span>+${hiddenTagCount}</span>` : ''}</div>`
+            : '';
         return `
             <div class="skill-card">
                 <div class="skill-card-body">
@@ -177,6 +183,7 @@ function renderSkillsList() {
                             ${metaItems.length ? `<div class="skill-card-meta">${metaItems.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}
                         </div>
                         <div class="skill-card-description">${escapeHtml(skill.description || _t('skills.noDescription'))}</div>
+                        ${tagsHtml}
                     </div>
                     <div class="skill-card-actions">
                         <button type="button" class="btn-secondary btn-small" data-skill-view="${escapeHtml(sid)}">${_t('common.view')}</button>
