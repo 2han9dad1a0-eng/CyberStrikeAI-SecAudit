@@ -35,9 +35,11 @@ type Session struct {
 type AuthManager struct {
 	sessionDuration time.Duration
 	db              *database.DB
+	maxSessions     int
 
-	mu       sync.RWMutex
-	sessions map[string]Session
+	mu           sync.RWMutex
+	sessions     map[string]Session
+	lastCleanup  time.Time
 }
 
 // NewAuthManager creates a new AuthManager instance.
@@ -48,7 +50,9 @@ func NewAuthManager(sessionDurationHours int) *AuthManager {
 
 	return &AuthManager{
 		sessionDuration: time.Duration(sessionDurationHours) * time.Hour,
+		maxSessions:     10000,
 		sessions:        make(map[string]Session),
+		lastCleanup:     time.Now(),
 	}
 }
 
@@ -93,6 +97,28 @@ func (a *AuthManager) Authenticate(username, password string) (string, time.Time
 		return "", time.Time{}, err
 	}
 	a.mu.Lock()
+	// Enforce session limit: evict oldest expired sessions when capacity is reached
+	if len(a.sessions) >= a.maxSessions {
+		for token, s := range a.sessions {
+			if time.Now().After(s.ExpiresAt) {
+				delete(a.sessions, token)
+			}
+		}
+		// If still over limit after removing expired, evict oldest session
+		if len(a.sessions) >= a.maxSessions {
+			var oldestKey string
+			var oldestTime time.Time
+			for token, s := range a.sessions {
+				if oldestKey == "" || s.ExpiresAt.Before(oldestTime) {
+					oldestKey = token
+					oldestTime = s.ExpiresAt
+				}
+			}
+			if oldestKey != "" {
+				delete(a.sessions, oldestKey)
+			}
+		}
+	}
 	a.sessions[session.Token] = session
 	a.mu.Unlock()
 	return session.Token, session.ExpiresAt, nil
@@ -259,6 +285,41 @@ func (a *AuthManager) RevokeAllSessions() {
 	a.mu.Lock()
 	a.sessions = make(map[string]Session)
 	a.mu.Unlock()
+}
+
+// SessionCount returns the current number of active sessions.
+// Useful for monitoring and observability.
+func (a *AuthManager) SessionCount() int {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return len(a.sessions)
+}
+
+// CleanupExpiredSessions removes all sessions that have expired.
+// This is automatically called during authentication but can be invoked
+// periodically by an external goroutine for proactive cleanup.
+func (a *AuthManager) CleanupExpiredSessions() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	count := 0
+	for token, session := range a.sessions {
+		if now.After(session.ExpiresAt) {
+			delete(a.sessions, token)
+			count++
+		}
+	}
+	a.lastCleanup = now
+	return count
+}
+
+// SetMaxSessions sets the maximum number of concurrent sessions allowed.
+// When the limit is reached, the oldest expired session is evicted.
+// A value of 0 means no limit (use with caution).
+func (a *AuthManager) SetMaxSessions(n int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.maxSessions = n
 }
 
 // SessionDurationHours returns the configured session duration in hours.
