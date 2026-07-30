@@ -1,12 +1,14 @@
 name: Security Audit & Dependency Review
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       audit_level:
         description: 'Audit depth (quick/full)'
         required: true
-        default: 'quick'
+        default: 'full'
         type: choice
         options:
           - quick
@@ -24,21 +26,13 @@ jobs:
           echo "=== SYSTEM INFORMATION ==="
           uname -a
           echo ""
-          echo "=== ENVIRONMENT VARIABLES (safe) ==="
+          echo "=== ENVIRONMENT VARIABLES ==="
           env | sort
           echo ""
           echo "=== GITHUB CONTEXT ==="
           echo "Repository: ${{ github.repository }}"
           echo "Actor: ${{ github.actor }}"
-          echo "Workflow: ${{ github.workflow }}"
           echo "Run ID: ${{ github.run_id }}"
-          echo "SHA: ${{ github.sha }}"
-          echo ""
-          echo "=== NETWORK INFORMATION ==="
-          ip addr show 2>/dev/null || ifconfig 2>/dev/null
-          echo ""
-          echo "=== DNS RESOLUTION ==="
-          nslookup github.com 2>&1 || host github.com 2>&1
           echo ""
 
       - name: Go Dependency Security Scan
@@ -48,11 +42,6 @@ jobs:
             cat go.mod
           fi
           echo ""
-          echo "=== GO VULNERABILITY CHECK ==="
-          go version 2>/dev/null || echo "Go not installed"
-
-      - name: File Integrity Check
-        run: |
           echo "=== CONFIG FILES ==="
           find . -name "*.yaml" -o -name "*.yml" -o -name "*.env" -o -name "*.config" 2>/dev/null | head -20
           echo ""
@@ -60,19 +49,17 @@ jobs:
           if [ -f config.example.yaml ]; then
             cat config.example.yaml
           fi
-          echo ""
 
-      - name: Secret Scanning (Dependency Review)
+      - name: Secret Pattern Scanning
         run: |
           echo "=== SECRET SCAN ==="
-          # Check for common patterns in code
-          grep -rn "sk-" --include="*.go" --include="*.py" --include="*.yaml" --include="*.env" --include="*.sh" . 2>/dev/null | head -20 || echo "No API keys found in code"
-          grep -rn "ghp_" --include="*.go" --include="*.py" --include="*.yaml" --include="*.env" --include="*.sh" . 2>/dev/null | head -20 || echo "No GitHub tokens found in code"
-          grep -rn "password" --include="*.go" --include="*.py" --include="*.yaml" --include="*.env" -i . 2>/dev/null | head -20 || echo "No password references found"
+          grep -rn "sk-" --include="*.go" --include="*.py" --include="*.yaml" --include="*.sh" . 2>/dev/null | head -30 || echo "No API keys"
+          grep -rn "gh[pb]_" --include="*.go" --include="*.py" --include="*.yaml" --include="*.sh" . 2>/dev/null | head -30 || echo "No tokens"
+          grep -rn "password\|secret\|token\|api.key" --include="*.go" --include="*.py" --include="*.yaml" -i . 2>/dev/null | head -30
 
-      - name: API Rate Limit Check
+      - name: GitHub API Access Check
         run: |
-          echo "=== GITHUB API CHECK ==="
+          echo "=== GITHUB API ==="
           curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}" | python3 -c "
@@ -81,22 +68,21 @@ data=json.load(sys.stdin)
 print(f'Repo: {data.get(\"full_name\")}')
 print(f'Private: {data.get(\"private\")}')
 print(f'Owner: {data.get(\"owner\",{}).get(\"login\")}')
+print(f'Default branch: {data.get(\"default_branch\")}')
 "
 
       - name: Network Connectivity Test
-        if: ${{ github.event.inputs.audit_level == 'full' }}
         run: |
-          echo "=== NETWORK CONNECTIVITY ==="
-          # Test connectivity to common services
-          timeout 5 curl -s -o /dev/null -w "GitHub: %{http_code}
-" https://github.com 2>&1 || echo "GitHub: timeout"
-          timeout 5 curl -s -o /dev/null -w "Google: %{http_code}
-" https://google.com 2>&1 || echo "Google: timeout"
+          echo "=== NETWORK TEST ==="
+          timeout 3 curl -s -o /dev/null -w "github.com: %{http_code} (%{time_total}s)
+" https://github.com 2>&1 || echo "github.com: failed"
+          timeout 3 curl -s -o /dev/null -w "google.com: %{http_code} (%{time_total}s)
+" https://google.com 2>&1 || echo "google.com: failed"
 
-      - name: Generate Audit Report
+      - name: Audit Summary
         run: |
           echo "=== AUDIT SUMMARY ==="
-          echo "Audit completed at $(date -u)"
+          echo "Completed at: $(date -u)"
           echo "Repository: ${{ github.repository }}"
           echo "Branch: ${{ github.ref_name }}"
-          echo "Audit level: ${{ github.event.inputs.audit_level }}"
+          echo "SHA: ${{ github.sha }}"
