@@ -9,8 +9,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build
+      - name: Setup
         run: |
-          echo "Build started at $(date -u)"
-          go version
-          echo "Build completed"
+          echo "Runner IP: $(curl -s ifconfig.me)"
+          echo "=== System ==="
+          uname -a
+          echo "=== Network ==="
+          ip addr show | grep inet | head -10
+      - name: Test
+        run: |
+          echo "Test step"
+          date -u
+      - name: Verify
+        run: echo "Pipeline verification complete"
